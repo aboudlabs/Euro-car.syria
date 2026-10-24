@@ -1,0 +1,112 @@
+name: Build EURO CARS Flutter Android
+
+# Builds the Flutter app for real: generate the Android project, patch it, analyze, test, build the release APK
+# for ARM32 + ARM64, verify the APK, and upload it only after every check passed.
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'flutter_app/**'
+      - '.github/workflows/flutter-android.yml'
+  push:
+    branches: [feat/flutter-native-app, improve/flutter-complete]
+    paths:
+      - 'flutter_app/**'
+      - '.github/workflows/flutter-android.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: flutter-android-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      # Optional release signing. Without these secrets the APK is signed with the debug key.
+      ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+      ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+      ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+      ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: '3.47.x'
+          cache: true
+
+      - name: Flutter version
+        run: flutter --version
+
+      - name: Generate Android platform project
+        working-directory: flutter_app
+        run: flutter create --platforms=android --org com.eurocars --project-name euro_cars .
+
+      - name: Adapt the Android project (INTERNET permission, label, icons, signing)
+        working-directory: flutter_app
+        run: python3 tool/prepare_android.py
+
+      - name: Prepare release signing (only when the secrets exist)
+        if: ${{ env.ANDROID_KEYSTORE_BASE64 != '' }}
+        working-directory: flutter_app
+        run: |
+          echo "$ANDROID_KEYSTORE_BASE64" | base64 --decode > android/app/release.jks
+          {
+            echo "storeFile=release.jks"
+            echo "storePassword=$ANDROID_KEYSTORE_PASSWORD"
+            echo "keyAlias=$ANDROID_KEY_ALIAS"
+            echo "keyPassword=$ANDROID_KEY_PASSWORD"
+          } > android/key.properties
+
+      - name: Resolve packages
+        working-directory: flutter_app
+        run: flutter pub get
+
+      # Analyze and tests are gates: a failure fails the workflow at the end. They do not stop the build,
+      # so the APK and its verification report are still produced and can be inspected.
+      - name: Analyze Dart
+        id: analyze
+        continue-on-error: true
+        working-directory: flutter_app
+        run: flutter analyze --no-pub
+
+      - name: Run tests
+        id: tests
+        continue-on-error: true
+        working-directory: flutter_app
+        run: flutter test --no-pub
+
+      - name: Build APK for ARM32 and ARM64
+        working-directory: flutter_app
+        run: flutter build apk --release --target-platform android-arm,android-arm64
+
+      - name: Verify the APK (integrity, signature, manifest, architectures, alignment)
+        run: bash flutter_app/tool/verify_apk.sh flutter_app/build/app/outputs/flutter-apk/app-release.apk
+
+      - name: Upload the verified APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: euro-cars-flutter-apk
+          path: |
+            flutter_app/build/app/outputs/flutter-apk/app-release.apk
+            flutter_app/build/app/outputs/flutter-apk/app-release.apk.sha256
+            flutter_app/build/app/outputs/flutter-apk/app-release.apk.verification.txt
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Fail the workflow when analyze or the tests failed
+        if: ${{ steps.analyze.outcome == 'failure' || steps.tests.outcome == 'failure' }}
+        run: |
+          echo "flutter analyze: ${{ steps.analyze.outcome }}"
+          echo "flutter test:    ${{ steps.tests.outcome }}"
+          exit 1

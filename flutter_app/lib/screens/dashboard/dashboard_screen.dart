@@ -1,0 +1,448 @@
+// Dashboard tab. A workshop sees cashback, debt, its tier estimate, its orders and the debt ledger
+// (GET /api/workshop/dashboard); a marketer sees the invitation link and commissions
+// (GET /api/marketer/dashboard).
+
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+
+import '../../core/config.dart';
+import '../../core/format.dart';
+import '../../core/labels.dart';
+import '../../core/models.dart';
+import '../../state/app_state.dart';
+import '../../theme/palette.dart';
+import '../../widgets/feedback.dart';
+import '../../widgets/inputs.dart';
+import '../../widgets/panel.dart';
+import '../../widgets/pickers.dart';
+import '../home/tab_header.dart';
+import 'dashboard_widgets.dart';
+
+class DashboardScreen extends StatelessWidget {
+  const DashboardScreen({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final AppState state = AppScope.of(context);
+    final AppUser? user = state.user;
+    if (user == null) {
+      return const SizedBox.shrink();
+    }
+    final Palette p = Palette.of(context);
+    final bool marketer = user.isMarketer;
+    final String? error = state.dashboardError;
+    final WorkshopDashboard? workshop = state.workshopDashboard;
+    final MarketerDashboard? seller = state.marketerDashboard;
+
+    final List<Widget> children = <Widget>[];
+    if (!state.dashboardLoaded) {
+      if (error != null) {
+        children.add(
+          NoticeBanner(
+            message: error,
+            kind: NoticeKind.error,
+            onRetry: () => state.loadDashboard(),
+          ),
+        );
+      } else {
+        children.add(const LoadingBlock(message: 'جارٍ تحميل بيانات حسابك...'));
+      }
+    } else {
+      if (error != null) {
+        children.add(
+          NoticeBanner(
+            message: error,
+            kind: NoticeKind.error,
+            onRetry: () => state.loadDashboard(),
+          ),
+        );
+        children.add(const SizedBox(height: 12));
+      }
+      if (marketer && seller != null) {
+        children.addAll(_marketerChildren(context, seller));
+      } else if (!marketer && workshop != null) {
+        children.addAll(_workshopChildren(context, workshop));
+      }
+    }
+
+    String subtitle = marketer
+        ? 'عمولة 2% على طلبات الورشات المسجّلة عبر رابطك'
+        : 'ملخص حساب الورشة وطلباتها';
+    if (!marketer && workshop != null && workshop.name.isNotEmpty) {
+      subtitle = workshop.name;
+    }
+
+    return Column(
+      children: <Widget>[
+        TabHeader(
+          title: marketer ? 'لوحة المسوّق' : 'لوحة الورشة',
+          subtitle: subtitle,
+        ),
+        Expanded(
+          child: RefreshIndicator(
+            color: p.primary,
+            backgroundColor: p.panel,
+            onRefresh: () => state.loadDashboard(),
+            child: ListView(
+              physics: const AlwaysScrollableScrollPhysics(),
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 28),
+              children: children,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  // ------------------------------------------------------------------ workshop
+
+  List<Widget> _workshopChildren(BuildContext context, WorkshopDashboard data) {
+    final Palette p = Palette.of(context);
+    final double balance = data.debtBalance;
+    final int? daysLeft = data.debtDaysLeft(DateTime.now());
+    final bool urgent = balance > 0 && daysLeft != null && daysLeft <= 7;
+    final double? limit = data.debtLimit;
+    final TierStep tier = data.currentTier;
+    final TierStep? next = data.nextTier;
+    final List<Order> cash = data.cashOrders.take(5).toList();
+    final List<Order> debt = data.debtOrders.take(5).toList();
+
+    String debtNote;
+    if (balance <= 0) {
+      debtNote = 'لا يوجد دين مسجّل عليك';
+    } else if (daysLeft == null) {
+      debtNote = 'موعد التسديد غير متاح حالياً';
+    } else {
+      debtNote = 'الوقت المتبقي من آخر قيد دين: $daysLeft يومًا';
+    }
+
+    String limitNote;
+    if (limit == null) {
+      limitNote = 'لم يتم تحديد سقف الدين بعد.';
+    } else if (limit <= 0) {
+      limitNote = 'الدفع بالدين غير مفعّل لحسابك بعد، تواصل مع الإدارة.';
+    } else {
+      final double left = limit - balance;
+      limitNote = 'المتاح حالياً: ${formatUsd(left < 0 ? 0.0 : left)}';
+    }
+
+    return <Widget>[
+      MetricCard(
+        icon: Icons.account_balance_wallet_outlined,
+        label: 'رصيد الكاش باك',
+        value: formatUsd(data.cashbackBalance),
+        note: 'الرصيد المسجّل على حسابك لدى الإدارة.',
+      ),
+      const SizedBox(height: 12),
+      MetricCard(
+        icon: Icons.schedule_rounded,
+        accent: urgent ? p.err : p.primary,
+        borderColor: urgent ? p.err.withValues(alpha: 0.6) : null,
+        label: 'الدين المستحق',
+        value: formatUsd(balance),
+        note: debtNote,
+        footer: balance > 0 && daysLeft != null
+            ? ProgressBar(
+                value: (debtWindowDays - daysLeft) / debtWindowDays,
+                color: urgent ? p.err : p.primary,
+              )
+            : null,
+      ),
+      const SizedBox(height: 12),
+      MetricCard(
+        icon: Icons.menu_book_outlined,
+        label: 'سقف دفتر الدين',
+        value: limit == null ? 'غير محدد' : formatUsd(limit),
+        note: limitNote,
+      ),
+      const SizedBox(height: 12),
+      Panel(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: <Widget>[
+            Row(
+              children: <Widget>[
+                Icon(Icons.workspace_premium_outlined, color: p.primary),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    'مرتبتك التقديرية حسب المشتريات المعتمدة',
+                    style: TextStyle(color: p.text, fontSize: 15, fontWeight: FontWeight.w800),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 10),
+            Text(
+              '${tier.name} · كاش باك ${tier.cashback}',
+              style: TextStyle(color: p.primary, fontSize: 20, fontWeight: FontWeight.w900),
+            ),
+            if (next != null) ...<Widget>[
+              const SizedBox(height: 2),
+              Text(
+                'باقي ${formatUsd(next.minSpend - data.approvedSpend)} للوصول إلى ${next.name}',
+                style: TextStyle(color: p.muted, fontSize: 13),
+              ),
+            ],
+            const SizedBox(height: 12),
+            ProgressBar(value: data.tierProgress, height: 10),
+            const SizedBox(height: 10),
+            Row(
+              children: <Widget>[
+                for (int i = 0; i < estimatedTiers.length; i++)
+                  Expanded(
+                    child: Text(
+                      estimatedTiers[i].name,
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        color: i <= data.tierIndex ? p.primary : p.muted,
+                        fontSize: 11,
+                        fontWeight: i <= data.tierIndex ? FontWeight.w800 : FontWeight.w500,
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+            const SizedBox(height: 10),
+            Text(
+              'المرتبة محسوبة من الطلبات المعتمدة الظاهرة في آخر 100 طلب، وقد تختلف عن المرتبة المعتمدة في حساب الإدارة.',
+              style: TextStyle(color: p.muted, fontSize: 12, height: 1.6),
+            ),
+          ],
+        ),
+      ),
+      const SizedBox(height: 12),
+      OrderGroup(
+        title: 'طلبات الدفع النقدي / شام كاش',
+        color: p.ok,
+        orders: cash,
+        total: _sum(cash),
+      ),
+      const SizedBox(height: 12),
+      OrderGroup(
+        title: 'طلبات دفتر الدين',
+        color: p.warn,
+        orders: debt,
+        total: _sum(debt),
+      ),
+      const SizedBox(height: 12),
+      _LedgerPanel(entries: data.ledger.take(5).toList()),
+    ];
+  }
+
+  double _sum(List<Order> orders) {
+    double total = 0.0;
+    for (final Order order in orders) {
+      total += order.total;
+    }
+    return roundMoney(total);
+  }
+
+  // ------------------------------------------------------------------ marketer
+
+  List<Widget> _marketerChildren(BuildContext context, MarketerDashboard data) {
+    final Palette p = Palette.of(context);
+    final Commissions c = data.commissions;
+    return <Widget>[
+      _InvitationPanel(data: data),
+      const SizedBox(height: 12),
+      MetricCard(
+        icon: Icons.payments_outlined,
+        accent: p.ok,
+        valueColor: p.ok,
+        label: 'عمولات متاحة للدفع',
+        value: formatUsd(c.available),
+      ),
+      const SizedBox(height: 12),
+      MetricCard(
+        icon: Icons.hourglass_bottom_rounded,
+        accent: p.warn,
+        label: 'عمولات معلّقة حتى تسديد الدين',
+        value: formatUsd(c.held),
+      ),
+      const SizedBox(height: 12),
+      MetricCard(
+        icon: Icons.groups_2_outlined,
+        label: 'إجمالي الورشات المرتبطة',
+        value: '${data.workshops}',
+        note: 'إجمالي العمولات المسجّلة: ${formatUsd(c.total)} · المدفوع منها: ${formatUsd(c.paid)}',
+      ),
+      const SizedBox(height: 12),
+      Text(
+        'تُسجّل العمولة بعد تسليم الطلب. عمولات طلبات الدين تبقى معلّقة حتى تسديد دين الورشة بالكامل.',
+        style: TextStyle(color: p.muted, fontSize: 12.5, height: 1.6),
+      ),
+    ];
+  }
+}
+
+/// The marketer's invitation link with copy and WhatsApp share.
+class _InvitationPanel extends StatelessWidget {
+  const _InvitationPanel({required this.data});
+
+  final MarketerDashboard data;
+
+  Future<void> _copy(BuildContext context, String link) async {
+    await Clipboard.setData(ClipboardData(text: link));
+    if (context.mounted) {
+      showSnack(context, 'تم نسخ رابط الدعوة');
+    }
+  }
+
+  Future<void> _share(BuildContext context, String link) async {
+    final String text = 'سجّل ورشتك في اليورو: $link';
+    final bool opened = await openExternalUrl('https://wa.me/?text=${Uri.encodeComponent(text)}');
+    if (!opened && context.mounted) {
+      showSnack(context, 'تعذر فتح واتساب. تأكد من تثبيته أو انسخ الرابط وأرسله يدوياً.');
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final Palette p = Palette.of(context);
+    final String link = data.referralUrl;
+    final bool hasLink = link.isNotEmpty;
+
+    return Panel(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: <Widget>[
+          Text(
+            'رابط الدعوة الخاص بك',
+            style: TextStyle(color: p.text, fontSize: 15.5, fontWeight: FontWeight.w800),
+          ),
+          const SizedBox(height: 10),
+          DecoratedBox(
+            decoration: BoxDecoration(
+              color: p.panelAlt,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: p.line),
+            ),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+              child: hasLink
+                  ? SelectableText(
+                      link,
+                      textDirection: TextDirection.ltr,
+                      style: TextStyle(color: p.text, fontSize: 13.5, height: 1.5),
+                    )
+                  : Text(
+                      'لا يوجد كود دعوة لحسابك',
+                      style: TextStyle(color: p.muted, fontSize: 14),
+                    ),
+            ),
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: <Widget>[
+              Expanded(
+                child: SecondaryButton(
+                  label: 'نسخ',
+                  icon: Icons.copy_rounded,
+                  onPressed: hasLink ? () => _copy(context, link) : null,
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: PrimaryButton(
+                  label: 'واتساب',
+                  icon: Icons.share_rounded,
+                  onPressed: hasLink ? () => _share(context, link) : null,
+                ),
+              ),
+            ],
+          ),
+          if (data.code.isNotEmpty) ...<Widget>[
+            const SizedBox(height: 10),
+            Text(
+              'كود الدعوة: ${data.code}',
+              style: TextStyle(color: p.muted, fontSize: 12.5),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+/// The last debt ledger entries of a workshop.
+class _LedgerPanel extends StatelessWidget {
+  const _LedgerPanel({required this.entries});
+
+  final List<LedgerEntry> entries;
+
+  @override
+  Widget build(BuildContext context) {
+    final Palette p = Palette.of(context);
+    return Panel(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Text(
+            'آخر حركات دفتر الدين',
+            style: TextStyle(color: p.text, fontSize: 15.5, fontWeight: FontWeight.w800),
+          ),
+          const SizedBox(height: 6),
+          if (entries.isEmpty)
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 10),
+              child: Text(
+                'لا توجد حركات دين مسجّلة.',
+                style: TextStyle(color: p.muted, fontSize: 13.5),
+              ),
+            )
+          else
+            for (final LedgerEntry entry in entries) _LedgerRow(entry: entry),
+        ],
+      ),
+    );
+  }
+}
+
+class _LedgerRow extends StatelessWidget {
+  const _LedgerRow({required this.entry});
+
+  final LedgerEntry entry;
+
+  @override
+  Widget build(BuildContext context) {
+    final Palette p = Palette.of(context);
+    final String? note = entry.note;
+    final String title = (note != null && note.isNotEmpty)
+        ? note
+        : (entry.isPayment ? 'تسديد دين' : 'قيد دين');
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 7),
+      child: Row(
+        children: <Widget>[
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                Text(
+                  title,
+                  style: TextStyle(color: p.text, fontSize: 14.5, fontWeight: FontWeight.w700),
+                ),
+                Text(
+                  '${formatDate(entry.createdAt)} · ${ledgerTxLabel(entry.type)}',
+                  style: TextStyle(color: p.muted, fontSize: 12.5),
+                ),
+              ],
+            ),
+          ),
+          Text(
+            formatUsd(entry.amount),
+            style: TextStyle(
+              color: entry.isPayment ? p.ok : p.text,
+              fontSize: 14.5,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
