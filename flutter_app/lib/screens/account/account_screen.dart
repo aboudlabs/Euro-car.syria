@@ -1,7 +1,5 @@
 // Account tab: profile photo, profile editing (PUT /api/auth), appearance, support and sign-out.
 
-import 'dart:typed_data';
-
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
