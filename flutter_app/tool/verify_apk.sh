@@ -3,19 +3,23 @@
 #   * the ZIP archive is intact,
 #   * it carries a valid Android signature (v2 or v3),
 #   * package name, app label, INTERNET permission and SDK levels are what the app needs,
+#   * the minimum SDK is read from the APK itself by every tool that is installed (apkanalyzer, aapt2, aapt),
+#     the tools must agree, and the value must be at least MIN_SDK_REQUIRED (24),
 #   * it contains native code for exactly the supported CPU architectures (armeabi-v7a and arm64-v8a),
 #   * the Dart code, the Flutter engine and the bundled Arabic font are inside,
 #   * ZIP alignment is correct,
 # and finally writes the SHA-256 next to the APK.
 #
 # Usage: tool/verify_apk.sh path/to/app-release.apk
-# Environment (optional): EXPECTED_PACKAGE, EXPECTED_LABEL, EXPECTED_ABIS, ANDROID_HOME / ANDROID_SDK_ROOT.
+# Environment (optional): EXPECTED_PACKAGE, EXPECTED_LABEL, EXPECTED_ABIS, MIN_SDK_REQUIRED,
+#                         ANDROID_HOME / ANDROID_SDK_ROOT.
 set -uo pipefail
 
 APK="${1:?usage: verify_apk.sh path/to/app-release.apk}"
 EXPECTED_PACKAGE="${EXPECTED_PACKAGE:-com.eurocars.euro_cars}"
 EXPECTED_LABEL="${EXPECTED_LABEL:-EURO CARS}"
 EXPECTED_ABIS="${EXPECTED_ABIS:-armeabi-v7a arm64-v8a}"
+MIN_SDK_REQUIRED="${MIN_SDK_REQUIRED:-24}"
 
 failures=0
 report="$(mktemp)"
@@ -37,21 +41,35 @@ if [ -n "$sdk" ] && [ -d "$sdk/build-tools" ]; then
 fi
 tool() { [ -n "$tools_dir" ] && [ -x "$tools_dir/$1" ] && echo "$tools_dir/$1"; }
 
-# Prints a decimal number for "24", "0x18", "(type 0x10)0x18" or "\"24\"" (the spellings aapt2 and aapt use), else nothing.
+# apkanalyzer ships with the Android command-line tools, not with build-tools.
+find_apkanalyzer() {
+  if command -v apkanalyzer >/dev/null 2>&1; then
+    command -v apkanalyzer
+  elif [ -n "$sdk" ]; then
+    find "$sdk/cmdline-tools" "$sdk/tools/bin" -maxdepth 3 -type f -name apkanalyzer -perm -u+x 2>/dev/null | sort -V | tail -n 1
+  fi
+}
+
+with_timeout() { if command -v timeout >/dev/null 2>&1; then timeout 180 "$@"; else "$@"; fi; }
+
+# Prints a decimal number for "24", "0x18", "(type 0x10)0x18" or "\"24\"" (the spellings the Android tools use).
+# Prints nothing for anything else, such as a preview codename or an empty answer.
 to_int() {
-  local v="$1"
-  local re_typed='^\(type 0x[0-9a-fA-F]+\)(0x[0-9a-fA-F]+)'
+  local v="${1%% (Raw:*}"
+  v="${v#"${v%%[![:space:]]*}"}"
+  v="${v%"${v##*[![:space:]]}"}"
+  local re_typed='^\(type 0x[0-9a-fA-F]+\)(0x[0-9a-fA-F]+)$'
   local re_hex='^0x[0-9a-fA-F]+$'
   local re_dec='^[0-9]+$'
-  local re_quoted='^"([0-9]+)"'
+  local re_quoted='^"([0-9]+)"$'
   if [[ $v =~ $re_typed ]]; then
     printf '%d' "${BASH_REMATCH[1]}"
   elif [[ $v =~ $re_hex ]]; then
     printf '%d' "$v"
   elif [[ $v =~ $re_dec ]]; then
-    printf '%s' "$v"
+    printf '%d' "$((10#$v))"
   elif [[ $v =~ $re_quoted ]]; then
-    printf '%s' "${BASH_REMATCH[1]}"
+    printf '%d' "$((10#${BASH_REMATCH[1]}))"
   fi
   return 0
 }
@@ -93,37 +111,25 @@ fi
 
 # 3. Manifest facts
 aapt2="$(tool aapt2 || true)"
+aapt="$(tool aapt || true)"
+apkanalyzer="$(find_apkanalyzer)"
+badging=""
+badging_value() { printf '%s\n' "$badging" | sed -n "s/^$1:'\([^']*\)'.*/\1/p" | head -n 1; }
+
 if [ -z "$aapt2" ]; then
   fail "aapt2 not found, the manifest cannot be inspected"
 else
   badging="$("$aapt2" dump badging "$APK" 2>&1)"
   printf '%s\n' "$badging" >>"$report"
-  badging_value() { printf '%s\n' "$badging" | sed -n "s/^$1:'\([^']*\)'.*/\1/p" | head -n 1; }
   package="$(printf '%s\n' "$badging" | sed -n "s/^package: name='\([^']*\)'.*/\1/p" | head -n 1)"
   version="$(printf '%s\n' "$badging" | sed -n "s/.*versionName='\([^']*\)'.*/\1/p" | head -n 1)"
   code="$(printf '%s\n' "$badging" | sed -n "s/.*versionCode='\([^']*\)'.*/\1/p" | head -n 1)"
   target_sdk="$(badging_value targetSdkVersion)"
   label="$(badging_value application-label)"
 
-  # The minimum SDK is printed as "minSdkVersion:'N'" by aapt2 from build-tools 36 and as "sdkVersion:'N'" by older
-  # versions. When neither line exists, the attribute is read from the binary manifest itself.
-  min_sdk_raw="$(badging_value minSdkVersion)"
-  [ -n "$min_sdk_raw" ] || min_sdk_raw="$(badging_value sdkVersion)"
-  if [ -z "$min_sdk_raw" ]; then
-    min_sdk_raw="$("$aapt2" dump xmltree --file AndroidManifest.xml "$APK" 2>&1 | sed -n 's/.*:minSdkVersion([^)]*)=\(.*\)$/\1/p' | head -n 1)"
-  fi
-  min_sdk="$(to_int "$min_sdk_raw")"
-
   [ "$package" = "$EXPECTED_PACKAGE" ] && pass "package is $package" || fail "package is '$package', expected '$EXPECTED_PACKAGE'"
   [ "$label" = "$EXPECTED_LABEL" ] && pass "app label is '$label'" || fail "app label is '$label', expected '$EXPECTED_LABEL'"
-  say "INFO  version $version ($code), minSdk ${min_sdk:-unknown}, targetSdk ${target_sdk:-unknown}"
-  if [ -n "$min_sdk" ] && [ "$min_sdk" -ge 23 ]; then
-    pass "minSdk $min_sdk is at least 23"
-  else
-    fail "minSdk could not be read as a number of at least 23 (aapt2 gave '${min_sdk_raw:-nothing}')"
-    say "      SDK lines in the aapt2 output:"
-    printf '%s\n' "$badging" | grep -i 'sdk' | sed 's/^/        /' | tee -a "$report"
-  fi
+  say "INFO  version $version ($code), targetSdk ${target_sdk:-unknown}"
   if printf '%s\n' "$badging" | grep -q "^uses-permission: name='android.permission.INTERNET'"; then
     pass "INTERNET permission is present (without it the release app has no network)"
   else
@@ -148,6 +154,62 @@ else
       *) warn "unexpected architecture $abi is included" ;;
     esac
   done
+fi
+
+# 3b. Minimum SDK. Every installed tool is asked, each answer must be a real number, the tools must agree, and the
+# number must reach MIN_SDK_REQUIRED. aapt2 from newer build-tools prints "minSdkVersion:'N'" while older versions print
+# "sdkVersion:'N'"; both are read, and apkanalyzer and the attribute in the binary manifest serve as independent checks.
+min_values=""
+min_seen=""
+min_detail=""
+note_min() { # $1 = what was asked, $2 = the answer
+  local n
+  min_seen="${min_seen}        $1: ${2:-no answer}"$'\n'
+  n="$(to_int "$2")"
+  if [ -n "$n" ]; then
+    min_values="$min_values $n"
+  fi
+}
+
+if [ -n "$apkanalyzer" ]; then
+  out="$(with_timeout "$apkanalyzer" manifest min-sdk "$APK" 2>&1 | tr -d '\r')"
+  min_detail="${min_detail}apkanalyzer manifest min-sdk:"$'\n'"$(printf '%s\n' "$out" | head -n 6)"$'\n'
+  note_min "apkanalyzer manifest min-sdk" "$(printf '%s\n' "$out" | grep -E '^[[:space:]]*[A-Za-z0-9_]+[[:space:]]*$' | tail -n 1 | tr -d '[:space:]')"
+fi
+if [ -n "$aapt2" ]; then
+  raw="$(badging_value minSdkVersion)"
+  [ -n "$raw" ] || raw="$(badging_value sdkVersion)"
+  note_min "aapt2 dump badging" "$raw"
+  out="$("$aapt2" dump xmltree --file AndroidManifest.xml "$APK" 2>&1)"
+  min_detail="${min_detail}aapt2 dump xmltree (lines with 'sdk' or 'error'):"$'\n'"$(printf '%s\n' "$out" | grep -iE 'sdk|error' | head -n 6)"$'\n'
+  note_min "aapt2 dump xmltree" "$(printf '%s\n' "$out" | sed -n 's/.*:minSdkVersion([^)]*)=\(.*\)$/\1/p' | head -n 1)"
+fi
+if [ -n "$aapt" ]; then
+  out="$("$aapt" dump badging "$APK" 2>&1)"
+  min_detail="${min_detail}aapt dump badging (lines with 'sdk' or 'error'):"$'\n'"$(printf '%s\n' "$out" | grep -iE 'sdk|error' | head -n 6)"$'\n'
+  note_min "aapt dump badging" "$(printf '%s\n' "$out" | sed -n "s/^minSdkVersion:'\([^']*\)'.*/\1/p;s/^sdkVersion:'\([^']*\)'.*/\1/p" | head -n 1)"
+fi
+
+# shellcheck disable=SC2086
+distinct="$(printf '%s\n' $min_values | sort -un | tr '\n' ' ')"
+distinct="${distinct% }"
+if [ -z "$min_seen" ]; then
+  fail "minSdk cannot be checked: none of apkanalyzer, aapt2 or aapt was found"
+elif [ -z "$distinct" ]; then
+  fail "minSdk could not be read from the APK. Answers of the tools:"
+  printf '%s' "$min_seen" | tee -a "$report"
+  printf '%s' "$min_detail" | sed 's/^/        /' | tee -a "$report"
+elif [ "${distinct#* }" != "$distinct" ]; then
+  fail "the tools disagree about minSdk ($distinct). Answers of the tools:"
+  printf '%s' "$min_seen" | tee -a "$report"
+else
+  say "INFO  minSdk $distinct, as read from the APK by:"
+  printf '%s' "$min_seen" | tee -a "$report"
+  if [ "$distinct" -ge "$MIN_SDK_REQUIRED" ]; then
+    pass "minSdk $distinct is at least $MIN_SDK_REQUIRED"
+  else
+    fail "minSdk $distinct is below the required $MIN_SDK_REQUIRED"
+  fi
 fi
 
 # 5. What must be inside the archive
