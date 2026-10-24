@@ -37,6 +37,25 @@ if [ -n "$sdk" ] && [ -d "$sdk/build-tools" ]; then
 fi
 tool() { [ -n "$tools_dir" ] && [ -x "$tools_dir/$1" ] && echo "$tools_dir/$1"; }
 
+# Prints a decimal number for "24", "0x18", "(type 0x10)0x18" or "\"24\"" (the spellings aapt2 and aapt use), else nothing.
+to_int() {
+  local v="$1"
+  local re_typed='^\(type 0x[0-9a-fA-F]+\)(0x[0-9a-fA-F]+)'
+  local re_hex='^0x[0-9a-fA-F]+$'
+  local re_dec='^[0-9]+$'
+  local re_quoted='^"([0-9]+)"'
+  if [[ $v =~ $re_typed ]]; then
+    printf '%d' "${BASH_REMATCH[1]}"
+  elif [[ $v =~ $re_hex ]]; then
+    printf '%d' "$v"
+  elif [[ $v =~ $re_dec ]]; then
+    printf '%s' "$v"
+  elif [[ $v =~ $re_quoted ]]; then
+    printf '%s' "${BASH_REMATCH[1]}"
+  fi
+  return 0
+}
+
 say "APK: $APK"
 say "Size: $(stat -c %s "$APK") bytes"
 say "Build tools: ${tools_dir:-not found}"
@@ -79,20 +98,31 @@ if [ -z "$aapt2" ]; then
 else
   badging="$("$aapt2" dump badging "$APK" 2>&1)"
   printf '%s\n' "$badging" >>"$report"
+  badging_value() { printf '%s\n' "$badging" | sed -n "s/^$1:'\([^']*\)'.*/\1/p" | head -n 1; }
   package="$(printf '%s\n' "$badging" | sed -n "s/^package: name='\([^']*\)'.*/\1/p" | head -n 1)"
   version="$(printf '%s\n' "$badging" | sed -n "s/.*versionName='\([^']*\)'.*/\1/p" | head -n 1)"
   code="$(printf '%s\n' "$badging" | sed -n "s/.*versionCode='\([^']*\)'.*/\1/p" | head -n 1)"
-  min_sdk="$(printf '%s\n' "$badging" | sed -n "s/^sdkVersion:'\([^']*\)'.*/\1/p" | head -n 1)"
-  target_sdk="$(printf '%s\n' "$badging" | sed -n "s/^targetSdkVersion:'\([^']*\)'.*/\1/p" | head -n 1)"
-  label="$(printf '%s\n' "$badging" | sed -n "s/^application-label:'\([^']*\)'.*/\1/p" | head -n 1)"
+  target_sdk="$(badging_value targetSdkVersion)"
+  label="$(badging_value application-label)"
+
+  # The minimum SDK is printed as "minSdkVersion:'N'" by aapt2 from build-tools 36 and as "sdkVersion:'N'" by older
+  # versions. When neither line exists, the attribute is read from the binary manifest itself.
+  min_sdk_raw="$(badging_value minSdkVersion)"
+  [ -n "$min_sdk_raw" ] || min_sdk_raw="$(badging_value sdkVersion)"
+  if [ -z "$min_sdk_raw" ]; then
+    min_sdk_raw="$("$aapt2" dump xmltree --file AndroidManifest.xml "$APK" 2>&1 | sed -n 's/.*:minSdkVersion([^)]*)=\(.*\)$/\1/p' | head -n 1)"
+  fi
+  min_sdk="$(to_int "$min_sdk_raw")"
 
   [ "$package" = "$EXPECTED_PACKAGE" ] && pass "package is $package" || fail "package is '$package', expected '$EXPECTED_PACKAGE'"
   [ "$label" = "$EXPECTED_LABEL" ] && pass "app label is '$label'" || fail "app label is '$label', expected '$EXPECTED_LABEL'"
-  say "INFO  version $version ($code), minSdk $min_sdk, targetSdk $target_sdk"
-  if [ -n "$min_sdk" ] && [ "$min_sdk" -ge 23 ] 2>/dev/null; then
+  say "INFO  version $version ($code), minSdk ${min_sdk:-unknown}, targetSdk ${target_sdk:-unknown}"
+  if [ -n "$min_sdk" ] && [ "$min_sdk" -ge 23 ]; then
     pass "minSdk $min_sdk is at least 23"
   else
-    fail "minSdk '$min_sdk' is below 23 or unknown"
+    fail "minSdk could not be read as a number of at least 23 (aapt2 gave '${min_sdk_raw:-nothing}')"
+    say "      SDK lines in the aapt2 output:"
+    printf '%s\n' "$badging" | grep -i 'sdk' | sed 's/^/        /' | tee -a "$report"
   fi
   if printf '%s\n' "$badging" | grep -q "^uses-permission: name='android.permission.INTERNET'"; then
     pass "INTERNET permission is present (without it the release app has no network)"

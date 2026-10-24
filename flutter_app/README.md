@@ -53,11 +53,15 @@ without it a release APK cannot reach the server.
 ## Continuous integration
 
 `.github/workflows/flutter-android.yml` runs the steps above on every push to `improve/flutter-complete` and
-`feat/flutter-native-app`, on pull requests and manually. `flutter analyze` and `flutter test` are gates (the workflow
-fails if either fails) but do not stop the build, so the APK and its report can still be inspected. The APK is uploaded
-only after `verify_apk.sh` passed: archive integrity, Android signature, package name, label, INTERNET permission,
-minSdk, exactly the architectures `armeabi-v7a` and `arm64-v8a`, engine and Dart libraries, the bundled font, zip
-alignment, and a SHA-256 file.
+`feat/flutter-native-app`, on pull requests and manually (Actions → "Build EURO CARS Flutter Android" → Run workflow).
+
+* `flutter analyze` and `flutter test` are gates: the last step fails the run if either failed, but they do not stop
+  the build, so the APK and its report can still be inspected.
+* The APK is uploaded as the artifact **`euro-cars-flutter-apk`** (with its `.sha256` and report) only after
+  `verify_apk.sh` passed: archive integrity, Android signature, package name, label, INTERNET permission, minSdk,
+  exactly the architectures `armeabi-v7a` and `arm64-v8a`, engine and Dart libraries, the bundled font, zip alignment.
+* The verification report is uploaded in every run as `euro-cars-apk-verification-report`, and the run summary shows
+  the result of each check, so a failure can be read without building again. Artifacts are kept for 14 days.
 
 ### Release signing
 
@@ -66,6 +70,20 @@ same key, and it is not for the Play Store. To sign with your own key, create a 
 secrets: `ANDROID_KEYSTORE_BASE64` (`base64 -w0 release.jks`), `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`,
 `ANDROID_KEY_PASSWORD`. Locally, put `android/key.properties` (`storeFile`, `storePassword`, `keyAlias`, `keyPassword`)
 next to the generated project; keep both files out of git.
+
+## Acceptance test on a phone
+
+Nothing automatic installs and runs the APK, so try this once before handing the app over (the hosted API can take
+up to a minute to wake up on the first request):
+
+1. Install the APK, open it with the phone online, sign in as a workshop.
+2. Catalog: search by name and by an OEM number, open a part, add it to the cart, change the quantity.
+3. Order: place one with cash on delivery, one with Sham Cash and a receipt photo, and (if the account has credit) one
+   on the debt ledger. Check all of them under "طلباتي".
+4. Special request with a photo; dashboard (tier, debt, cashback); account (edit name, profile photo, theme).
+5. Close and reopen the app: the session and the cart must still be there. Sign out must clear them.
+6. Sign in as a marketer: referral code and share link, workshops, commissions; the debt option must not be offered.
+7. Sign in with an admin account: the app must refuse it (admin is web only).
 
 ## Notes
 

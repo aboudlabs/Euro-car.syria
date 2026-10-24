@@ -145,15 +145,16 @@ Legend for the last column ("Verified by") is filled in at the end of the work (
 
 Legend. **Static** = every Dart file parses, and every identifier, import, constructor and call (named / required /
 positional arguments) was resolved against the real Flutter 3.47.7, Dart 3.13 and package sources (done in the
-sandbox). **Tests** = covered by the test suite in `flutter_app/test` (written, **not executed** here). **CI** = the
-workflow runs analyze, tests, the release build and the APK checks on a real Flutter toolchain.
+sandbox). **Tests** = covered by the test suite in `flutter_app/test`; all 193 tests passed in the GitHub Actions run described
+in the CI results below. **CI** = the workflow runs analyze, tests, the release build and the APK checks on a real
+Flutter toolchain.
 
-The sandbox has no Flutter, Dart or Android SDK and cannot download them, so `flutter analyze`, `flutter test`, the
-release build and the APK integrity / architecture checks were **not run here**. Nothing below is claimed as passed
-unless it says so.
+The authoring sandbox has no Flutter, Dart or Android SDK and cannot download them, so nothing was compiled or run
+there. The real results come from the project's GitHub Actions run; they are reported below as the project owner
+reported them (the logs themselves were not visible to the author). Nothing is claimed as passed unless it says so.
 
-| Area | Preserved / delivered | Static | Tests (not run here) |
-|------|----------------------|--------|-----------------------|
+| Area | Preserved / delivered | Static | Tests |
+|------|----------------------|--------|-------|
 | A. Roles: workshop and marketer sign in; admin refused in the app | yes | yes | `app_state_test` (admin session and admin login rejected) |
 | A. Workshop registration waits for approval; marketer registration instant | yes | yes | `app_state_test` |
 | B. `POST /api/auth` login and register, `client: mobile`, Bearer token | yes | yes | `app_state_test`, `api_client_test` |
@@ -174,10 +175,18 @@ unless it says so.
 | H-01, H-02 workflows | untouched | — | — |
 | H-03 `flutter-android.yml` | extended: Java 17, pinned Flutter 3.47.x, Android patch step, test and analyze gates, APK verification script, optional release signing | YAML parsed | CI only |
 | Android project generation and patch (`prepare_android.py`) | INTERNET permission, label, `allowBackup=false`, `<queries>`, minSdk ≥ 23, icons, optional signing | tested here on the real Flutter 3.47.7 Android templates, twice (idempotent) | CI only |
-| `flutter analyze` | — | **not run** | CI only |
-| `flutter test` | — | **not run** | CI only |
-| Android release build | — | **not run** | CI only |
-| APK integrity and architectures | script written and dry-run on a stub archive | **not run on a real APK** | CI only |
+
+### CI results (GitHub Actions, reported by the project owner)
+
+| Step | Result |
+|------|--------|
+| Flutter 3.47.x, `flutter create`, `prepare_android.py`, `flutter pub get` | worked (the build below ran on the generated project) |
+| `flutter test` | **passed, 193 tests** |
+| `flutter build apk --release --target-platform android-arm,android-arm64` | **succeeded, 34.5 MB** |
+| `tool/verify_apk.sh` (first run) | exactly **one** check failed (`minSdk` could not be read): aapt2 of the newer build-tools prints `minSdkVersion:'N'`, the script only knew the old `sdkVersion:'N'` (the target SDK line of the same output was read fine), so this was a parsing problem in the script; the next run confirms it. The summary line "1 check(s) failed" means every other check of the script (archive, signature, package, label, INTERNET, both architectures, libraries, font, alignment) passed. |
+| `tool/verify_apk.sh` (after the fix) | script now reads the minimum SDK in every spelling and falls back to the binary manifest; tested here against stubs of each aapt2 format; **not yet re-run on the real APK** |
+| `flutter analyze` | result not reported; the workflow summary now lists it with the other checks |
+| Install and run on a phone or emulator | **not tested by anyone yet** (see the acceptance steps in `flutter_app/README.md`) |
 
 Not ported on purpose: the web account page's device-local e-mail field (not an API feature) and the avatar crop
 tool (replaced by the system picker plus a preview; the app resizes and sends a JPEG).

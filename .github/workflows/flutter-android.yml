@@ -1,7 +1,8 @@
 name: Build EURO CARS Flutter Android
 
 # Builds the Flutter app for real: generate the Android project, patch it, analyze, test, build the release APK
-# for ARM32 + ARM64, verify the APK, and upload it only after every check passed.
+# for ARM32 + ARM64, verify the APK, and upload it only after the verification passed. The verification report is
+# uploaded every time, and the run summary lists the result of each check.
 on:
   workflow_dispatch:
   pull_request:
@@ -72,8 +73,8 @@ jobs:
         working-directory: flutter_app
         run: flutter pub get
 
-      # Analyze and tests are gates: a failure fails the workflow at the end. They do not stop the build,
-      # so the APK and its verification report are still produced and can be inspected.
+      # Analyze and tests are gates: the last step fails the workflow when either failed. They do not stop the
+      # build, so the APK and its verification report are still produced and can be inspected.
       - name: Analyze Dart
         id: analyze
         continue-on-error: true
@@ -87,13 +88,28 @@ jobs:
         run: flutter test --no-pub
 
       - name: Build APK for ARM32 and ARM64
+        id: build
         working-directory: flutter_app
         run: flutter build apk --release --target-platform android-arm,android-arm64
 
       - name: Verify the APK (integrity, signature, manifest, architectures, alignment)
+        id: verify
+        continue-on-error: true
         run: bash flutter_app/tool/verify_apk.sh flutter_app/build/app/outputs/flutter-apk/app-release.apk
 
+      # The report is kept even when a check fails, so the reason can be read without building again.
+      - name: Upload the verification report
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: euro-cars-apk-verification-report
+          path: flutter_app/build/app/outputs/flutter-apk/app-release.apk.verification.txt
+          if-no-files-found: warn
+          retention-days: 14
+
+      # The APK is published only when its verification passed.
       - name: Upload the verified APK
+        if: ${{ steps.verify.outcome == 'success' }}
         uses: actions/upload-artifact@v4
         with:
           name: euro-cars-flutter-apk
@@ -104,9 +120,44 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
-      - name: Fail the workflow when analyze or the tests failed
-        if: ${{ steps.analyze.outcome == 'failure' || steps.tests.outcome == 'failure' }}
+      - name: Summary and final gate
+        if: ${{ !cancelled() }}
+        env:
+          ANALYZE: ${{ steps.analyze.outcome }}
+          TESTS: ${{ steps.tests.outcome }}
+          BUILD: ${{ steps.build.outcome }}
+          VERIFY: ${{ steps.verify.outcome }}
         run: |
-          echo "flutter analyze: ${{ steps.analyze.outcome }}"
-          echo "flutter test:    ${{ steps.tests.outcome }}"
-          exit 1
+          label() {
+            case "$1" in
+              success) echo "passed" ;;
+              failure) echo "FAILED" ;;
+              skipped) echo "not run" ;;
+              *) echo "$1" ;;
+            esac
+          }
+          apk=flutter_app/build/app/outputs/flutter-apk/app-release.apk
+          {
+            echo "### EURO CARS Flutter build"
+            echo
+            echo "| Check | Result |"
+            echo "|---|---|"
+            echo "| flutter analyze | $(label "$ANALYZE") |"
+            echo "| flutter test | $(label "$TESTS") |"
+            echo "| Release APK (ARM32 + ARM64) | $(label "$BUILD") |"
+            echo "| APK verification | $(label "$VERIFY") |"
+            echo
+            if [ -f "$apk" ]; then
+              echo "APK size: $(du -h "$apk" | cut -f1), SHA-256: \`$(sha256sum "$apk" | cut -d ' ' -f 1)\`"
+            fi
+            if [ "$VERIFY" = success ]; then
+              echo
+              echo "The verified APK is in the artifact **euro-cars-flutter-apk**."
+            fi
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+          for result in "$ANALYZE" "$TESTS" "$BUILD" "$VERIFY"; do
+            if [ "$result" != success ]; then
+              echo "At least one check did not pass." >&2
+              exit 1
+            fi
+          done
