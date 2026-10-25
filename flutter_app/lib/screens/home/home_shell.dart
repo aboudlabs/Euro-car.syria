@@ -3,7 +3,11 @@
 // Tabs are built the first time they are opened, so the orders and dashboard requests are only made when the
 // user actually looks at them. The tab index lives in AppState, so any screen can switch tabs.
 
+import 'dart:ui';
+
 import 'package:flutter/material.dart';
+
+import '../../theme/palette.dart';
 
 import '../../state/app_state.dart';
 import '../account/account_screen.dart';
@@ -86,7 +90,20 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
         ),
         bottomNavigationBar: keyboardOpen
             ? null
-            : NavigationBar(
+            : ClipRect(
+                child: BackdropFilter(
+                  filter: ImageFilter.blur(sigmaX: 24, sigmaY: 24),
+                  child: Container(
+                    decoration: BoxDecoration(
+                      color: Palette.of(context).bg.withValues(alpha: 0.78),
+                      border: Border(
+                        top: BorderSide(color: Palette.of(context).line),
+                      ),
+                      boxShadow: const <BoxShadow>[
+                        BoxShadow(color: Color(0x33000000), blurRadius: 24, offset: Offset(0, -6)),
+                      ],
+                    ),
+                    child: NavigationBar(
                 selectedIndex: tab,
                 onDestinationSelected: (int index) => _selectTab(state, index),
                 destinations: <Widget>[
@@ -116,6 +133,9 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
                     label: 'حسابي',
                   ),
                 ],
+                    ),
+                  ),
+                ),
               ),
       ),
     );
