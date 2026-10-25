@@ -53,6 +53,30 @@ ThemeData buildTheme(Brightness brightness) {
 
   return base.copyWith(
     scaffoldBackgroundColor: p.bg,
+    inputDecorationTheme: InputDecorationTheme(
+      filled: true,
+      fillColor: p.panelAlt,
+      contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+      border: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(16),
+        borderSide: BorderSide(color: p.line),
+      ),
+    ),
+    filledButtonTheme: FilledButtonThemeData(
+      style: FilledButton.styleFrom(
+        backgroundColor: p.primary,
+        foregroundColor: Colors.white,
+        shape: const StadiumBorder(),
+        textStyle: const TextStyle(fontFamily: appFont, fontSize: 15, fontWeight: FontWeight.w700),
+      ),
+    ),
+    outlinedButtonTheme: OutlinedButtonThemeData(
+      style: OutlinedButton.styleFrom(
+        shape: const StadiumBorder(),
+        side: BorderSide(color: p.line),
+        textStyle: const TextStyle(fontFamily: appFont, fontSize: 14, fontWeight: FontWeight.w600),
+      ),
+    ),
     textTheme: base.textTheme.apply(bodyColor: p.text, displayColor: p.text),
     dividerTheme: DividerThemeData(color: p.line, thickness: 1, space: 1),
     navigationBarTheme: NavigationBarThemeData(
