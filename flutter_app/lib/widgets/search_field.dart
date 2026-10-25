@@ -22,7 +22,7 @@ class SearchField extends StatelessWidget {
   Widget build(BuildContext context) {
     final Palette p = Palette.of(context);
     final OutlineInputBorder normal = OutlineInputBorder(
-      borderRadius: BorderRadius.circular(14),
+      borderRadius: BorderRadius.circular(16),
       borderSide: BorderSide(color: p.line),
     );
     return TextField(
@@ -43,13 +43,13 @@ class SearchField extends StatelessWidget {
                 icon: Icon(Icons.close_rounded, color: p.muted),
               ),
         filled: true,
-        fillColor: p.panel,
+        fillColor: p.panelAlt,
         isDense: true,
         contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
         border: normal,
         enabledBorder: normal,
         focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(14),
+          borderRadius: BorderRadius.circular(16),
           borderSide: BorderSide(color: p.primary, width: 1.6),
         ),
       ),
