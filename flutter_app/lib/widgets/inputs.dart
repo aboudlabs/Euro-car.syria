@@ -54,7 +54,7 @@ class AppTextField extends StatelessWidget {
   Widget build(BuildContext context) {
     final Palette p = Palette.of(context);
     final OutlineInputBorder normal = OutlineInputBorder(
-      borderRadius: BorderRadius.circular(12),
+      borderRadius: BorderRadius.circular(16),
       borderSide: BorderSide(color: p.line),
     );
     final IconData? leading = icon;
@@ -99,7 +99,7 @@ class AppTextField extends StatelessWidget {
             enabledBorder: normal,
             disabledBorder: normal,
             focusedBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(12),
+              borderRadius: BorderRadius.circular(16),
               borderSide: BorderSide(color: p.primary, width: 1.6),
             ),
           ),
@@ -191,7 +191,7 @@ class PrimaryButton extends StatelessWidget {
       style: FilledButton.styleFrom(
         minimumSize: const Size.fromHeight(52),
         backgroundColor: color,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        shape: const StadiumBorder(),
         textStyle: const TextStyle(fontFamily: appFont, fontSize: 16, fontWeight: FontWeight.w800),
       ),
       child: busy
@@ -240,7 +240,7 @@ class SecondaryButton extends StatelessWidget {
         minimumSize: const Size.fromHeight(48),
         foregroundColor: tint,
         side: BorderSide(color: color ?? p.line),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        shape: const StadiumBorder(),
         textStyle: const TextStyle(fontFamily: appFont, fontSize: 15, fontWeight: FontWeight.w700),
       ),
       child: Row(
