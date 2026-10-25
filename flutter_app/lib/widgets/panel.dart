@@ -1,20 +1,20 @@
-// Basic surfaces: a bordered panel, a section heading and a label / value row.
+// Shared glass surfaces, section headings and label/value rows.
+import 'dart:ui';
 
 import 'package:flutter/material.dart';
 
 import '../theme/palette.dart';
 
-/// A flat bordered surface. Tappable when [onTap] is given.
 class Panel extends StatelessWidget {
   const Panel({
     super.key,
     required this.child,
-    this.padding = const EdgeInsets.all(14),
+    this.padding = const EdgeInsets.all(16),
     this.margin,
     this.onTap,
     this.color,
     this.borderColor,
-    this.radius = 14,
+    this.radius = 24,
   });
 
   final Widget child;
@@ -28,25 +28,55 @@ class Panel extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final Palette p = Palette.of(context);
-    final Widget content = Padding(padding: padding, child: child);
-    final Widget surface = Material(
-      color: color ?? p.panel,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(radius),
-        side: BorderSide(color: borderColor ?? p.line),
-      ),
-      clipBehavior: Clip.antiAlias,
-      child: onTap == null ? content : InkWell(onTap: onTap, child: content),
-    );
+    final bool dark = Theme.of(context).brightness == Brightness.dark;
+    final BorderRadius corners = BorderRadius.circular(radius);
     final EdgeInsetsGeometry? outer = margin;
-    if (outer == null) {
-      return surface;
+
+    final Widget surface;
+    if (color != null || !dark) {
+      surface = Material(
+        color: color ?? p.panel,
+        shape: RoundedRectangleBorder(
+          borderRadius: corners,
+          side: BorderSide(color: borderColor ?? p.line),
+        ),
+        clipBehavior: Clip.antiAlias,
+        child: onTap == null
+            ? Padding(padding: padding, child: child)
+            : InkWell(onTap: onTap, child: Padding(padding: padding, child: child)),
+      );
+    } else {
+      surface = Container(
+        decoration: BoxDecoration(
+          borderRadius: corners,
+          border: Border.all(color: borderColor ?? p.line),
+          gradient: const LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: <Color>[Color(0x17FFFFFF), Color(0x08FFFFFF)],
+          ),
+          boxShadow: const <BoxShadow>[
+            BoxShadow(color: Color(0x73000000), blurRadius: 24, offset: Offset(0, 8)),
+            BoxShadow(color: Color(0x1FFFFFFF), blurRadius: 0, offset: Offset(0, -1)),
+          ],
+        ),
+        clipBehavior: Clip.antiAlias,
+        child: BackdropFilter(
+          filter: ImageFilter.blur(sigmaX: 24, sigmaY: 24),
+          child: Material(
+            color: Colors.transparent,
+            child: onTap == null
+                ? Padding(padding: padding, child: child)
+                : InkWell(onTap: onTap, child: Padding(padding: padding, child: child)),
+          ),
+        ),
+      );
     }
-    return Padding(padding: outer, child: surface);
+
+    return outer == null ? surface : Padding(padding: outer, child: surface);
   }
 }
 
-/// A heading above a group of content, with an optional trailing widget.
 class SectionTitle extends StatelessWidget {
   const SectionTitle(this.text, {super.key, this.trailing, this.padding});
 
@@ -80,7 +110,6 @@ class SectionTitle extends StatelessWidget {
   }
 }
 
-/// One label with its value, used in summaries.
 class InfoRow extends StatelessWidget {
   const InfoRow({
     super.key,
@@ -94,8 +123,6 @@ class InfoRow extends StatelessWidget {
   final String label;
   final String value;
   final Color? valueColor;
-
-  /// Force left-to-right for phone numbers, codes and links.
   final bool ltr;
   final bool bold;
 
@@ -127,7 +154,6 @@ class InfoRow extends StatelessWidget {
   }
 }
 
-/// A tinted box with a short message, used for the admin's notes and cancellation reasons.
 class NoteBox extends StatelessWidget {
   const NoteBox({super.key, required this.text, required this.color});
 
