@@ -1,7 +1,4 @@
-// Colour tokens. They come from the web app (dark: #07090E canvas with #0A84FF actions and the #8D2637
-// brand crimson; light: #EEF3F9 canvas with #007AFF actions). Status colours are darker in the light theme
-// so text on white keeps enough contrast.
-
+// Colour tokens aligned with the EURO Next.js site's shared CSS variables.
 import 'package:flutter/material.dart';
 
 import '../core/labels.dart';
@@ -22,63 +19,55 @@ class Palette {
     required this.err,
   });
 
-  /// Screen background.
   final Color bg;
-
-  /// Cards and sheets.
   final Color panel;
-
-  /// Inputs and inset areas.
   final Color panelAlt;
-
-  /// The engraved plate that carries part numbers.
   final Color plate;
   final Color line;
   final Color text;
   final Color muted;
   final Color primary;
-
-  /// EURO CARS crimson, used sparingly (logo, plate edge).
   final Color brand;
   final Color ok;
   final Color warn;
   final Color err;
 
+  // Mirrors app/globals.css: html.dark tokens.
   static const Palette dark = Palette(
-    bg: Color(0xFF07090E),
-    panel: Color(0xFF11151E),
-    panelAlt: Color(0xFF0B0E15),
-    plate: Color(0xFF0D1118),
-    line: Color(0xFF293141),
-    text: Color(0xFFEAF0F8),
-    muted: Color(0xFF9AA6B7),
+    bg: Color(0xFF06080E),
+    panel: Color(0x0FFFFFFF), // white at ~6% for glass surfaces
+    panelAlt: Color(0x59000000), // black at ~35% for inset fields
+    plate: Color(0x66000000),
+    line: Color(0x26FFFFFF), // white at ~15%
+    text: Color(0xFFFFFFFF),
+    muted: Color(0x99FFFFFF), // white at ~60%
     primary: Color(0xFF0A84FF),
-    brand: Color(0xFFB03047),
+    brand: Color(0xFF8D2637),
     ok: Color(0xFF30D158),
     warn: Color(0xFFFF9F0A),
     err: Color(0xFFFF453A),
   );
 
+  // Mirrors the website's light-theme tokens.
   static const Palette light = Palette(
     bg: Color(0xFFEEF3F9),
     panel: Color(0xFFFFFFFF),
-    panelAlt: Color(0xFFF3F6FB),
+    panelAlt: Color(0xFFFFFFFF),
     plate: Color(0xFFF6F8FC),
     line: Color(0xFFD5DEEA),
     text: Color(0xFF0F172A),
-    muted: Color(0xFF566377),
-    primary: Color(0xFF0068D6),
+    muted: Color(0xFF475569),
+    primary: Color(0xFF007AFF),
     brand: Color(0xFF8D2637),
-    ok: Color(0xFF1B8A3E),
+    ok: Color(0xFF15803D),
     warn: Color(0xFFB45309),
-    err: Color(0xFFC62828),
+    err: Color(0xFFB91C1C),
   );
 
   static Palette of(BuildContext context) {
     return Theme.of(context).brightness == Brightness.dark ? dark : light;
   }
 
-  /// Colour that stands for a status tone.
   Color toneColor(StatusTone tone) {
     switch (tone) {
       case StatusTone.waiting:
@@ -93,6 +82,5 @@ class Palette {
   }
 }
 
-/// Fonts: Tajawal is bundled; numbers and codes use the platform monospace face.
 const String appFont = 'Tajawal';
 const String codeFont = 'monospace';
