@@ -1,6 +1,4 @@
 // Shared glass surfaces, section headings and label/value rows.
-import 'dart:ui';
-
 import 'package:flutter/material.dart';
 
 import '../theme/palette.dart';
@@ -32,46 +30,30 @@ class Panel extends StatelessWidget {
     final BorderRadius corners = BorderRadius.circular(radius);
     final EdgeInsetsGeometry? outer = margin;
 
-    final Widget surface;
-    if (color != null || !dark) {
-      surface = Material(
+    final Widget surface = Container(
+      decoration: BoxDecoration(
         color: color ?? p.panel,
-        shape: RoundedRectangleBorder(
-          borderRadius: corners,
-          side: BorderSide(color: borderColor ?? p.line),
-        ),
-        clipBehavior: Clip.antiAlias,
+        borderRadius: corners,
+        border: Border.all(color: borderColor ?? p.line, width: 1),
+        boxShadow: const <BoxShadow>[
+          BoxShadow(
+            color: Color(0x26000000),
+            blurRadius: 12,
+            offset: Offset(0, 4),
+          ),
+        ],
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: Material(
+        color: Colors.transparent,
         child: onTap == null
             ? Padding(padding: padding, child: child)
-            : InkWell(onTap: onTap, child: Padding(padding: padding, child: child)),
-      );
-    } else {
-      surface = Container(
-        decoration: BoxDecoration(
-          borderRadius: corners,
-          border: Border.all(color: borderColor ?? p.line),
-          gradient: const LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: <Color>[Color(0x17FFFFFF), Color(0x08FFFFFF)],
-          ),
-          boxShadow: const <BoxShadow>[
-            BoxShadow(color: Color(0x73000000), blurRadius: 24, offset: Offset(0, 8)),
-            BoxShadow(color: Color(0x1FFFFFFF), blurRadius: 0, offset: Offset(0, -1)),
-          ],
-        ),
-        clipBehavior: Clip.antiAlias,
-        child: BackdropFilter(
-          filter: ImageFilter.blur(sigmaX: 24, sigmaY: 24),
-          child: Material(
-            color: Colors.transparent,
-            child: onTap == null
-                ? Padding(padding: padding, child: child)
-                : InkWell(onTap: onTap, child: Padding(padding: padding, child: child)),
-          ),
-        ),
-      );
-    }
+            : InkWell(
+                onTap: onTap,
+                child: Padding(padding: padding, child: child),
+              ),
+      ),
+    );
 
     return outer == null ? surface : Padding(padding: outer, child: surface);
   }
