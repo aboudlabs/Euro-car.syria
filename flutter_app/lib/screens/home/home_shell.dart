@@ -75,18 +75,58 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
         }
       },
       child: Scaffold(
-        body: SafeArea(
-          bottom: false,
-          child: IndexedStack(
-            index: tab,
-            children: <Widget>[
-              for (int i = 0; i < _screens.length; i++)
-                TickerMode(
-                  enabled: i == tab,
-                  child: _opened.contains(i) ? _screens[i] : const SizedBox.shrink(),
+        body: Stack(
+          fit: StackFit.expand,
+          children: <Widget>[
+            // Match the website's soft blue/violet ambient glow without intercepting taps.
+            Positioned(
+              top: -110,
+              right: -100,
+              child: IgnorePointer(
+                child: ImageFiltered(
+                  imageFilter: ImageFilter.blur(sigmaX: 75, sigmaY: 75),
+                  child: Container(
+                    width: 270,
+                    height: 270,
+                    decoration: BoxDecoration(
+                      color: Palette.of(context).primary.withValues(alpha: 0.14),
+                      shape: BoxShape.circle,
+                    ),
+                  ),
                 ),
-            ],
-          ),
+              ),
+            ),
+            Positioned(
+              bottom: 20,
+              left: -130,
+              child: IgnorePointer(
+                child: ImageFiltered(
+                  imageFilter: ImageFilter.blur(sigmaX: 90, sigmaY: 90),
+                  child: Container(
+                    width: 280,
+                    height: 280,
+                    decoration: const BoxDecoration(
+                      color: Color(0x185E5CE6),
+                      shape: BoxShape.circle,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+            SafeArea(
+              bottom: false,
+              child: IndexedStack(
+                index: tab,
+                children: <Widget>[
+                  for (int i = 0; i < _screens.length; i++)
+                    TickerMode(
+                      enabled: i == tab,
+                      child: _opened.contains(i) ? _screens[i] : const SizedBox.shrink(),
+                    ),
+                ],
+              ),
+            ),
+          ],
         ),
         bottomNavigationBar: keyboardOpen
             ? null
