@@ -147,7 +147,7 @@ class _ContactRow extends StatelessWidget {
     this.onTap,
   });
 
-  final FaIconData icon;
+  final IconData icon;
   final String label;
   final String value;
   final Color? iconColor;
@@ -192,7 +192,7 @@ class _ContactRow extends StatelessWidget {
 class _SocialIcon extends StatelessWidget {
   const _SocialIcon({required this.icon, required this.color, required this.onTap});
 
-  final IconData icon;
+  final FaIconData icon;
   final Color color;
   final VoidCallback onTap;
 
