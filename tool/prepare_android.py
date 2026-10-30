@@ -1,0 +1,209 @@
+#!/usr/bin/env python3
+"""Prepares the Android project that `flutter create --platforms=android .` generates for EURO CARS.
+
+The repository keeps only the Dart side of the app; the Android folder is generated in CI (and on a developer
+machine) and then adapted here. Every change is idempotent, and the script stops with an error when an expected
+anchor is missing, so a Flutter template change can never silently produce an APK without network access.
+
+What it does:
+  * AndroidManifest.xml: INTERNET permission (the template only grants it to debug and profile builds, so a
+    release APK would have no network at all), the app label "EURO CARS", android:allowBackup="false" (an
+    Auto Backup restore brings back encrypted preferences without their Keystore key), and <queries> for
+    https / http links so url_launcher can open WhatsApp and the web on Android 11+.
+  * app/build.gradle.kts: minSdk of at least 23 and optional release signing from android/key.properties
+    (without that file the release build is signed with the debug key, which is installable but not for the Play Store).
+  * res: the launcher icons and the dark launch background from branding/android/res.
+
+Usage (from the Flutter project folder):
+    python3 tool/prepare_android.py [--project .]
+"""
+
+from __future__ import annotations
+
+import argparse
+import pathlib
+import re
+import shutil
+import sys
+
+APP_LABEL = "EURO CARS"
+MIN_SDK = 23
+
+INTERNET = '<uses-permission android:name="android.permission.INTERNET"/>'
+QUERY_HTTPS = (
+    "        <intent>\n"
+    '            <action android:name="android.intent.action.VIEW"/>\n'
+    '            <data android:scheme="https"/>\n'
+    "        </intent>\n"
+)
+QUERY_HTTP = (
+    "        <intent>\n"
+    '            <action android:name="android.intent.action.VIEW"/>\n'
+    '            <data android:scheme="http"/>\n'
+    "        </intent>\n"
+)
+
+GRADLE_IMPORTS = "import java.io.FileInputStream\nimport java.util.Properties\n\n"
+
+GRADLE_KEYSTORE = """// Release signing is optional. With android/key.properties (keyAlias, keyPassword, storeFile, storePassword) the
+// APK is signed with that key; without it the debug key is used, so the APK installs but is not for the Play Store.
+val keystorePropertiesFile = rootProject.file("key.properties")
+val keystoreProperties = Properties()
+if (keystorePropertiesFile.exists()) {
+    FileInputStream(keystorePropertiesFile).use { keystoreProperties.load(it) }
+}
+
+"""
+
+GRADLE_SIGNING_CONFIGS = """    signingConfigs {
+        if (keystorePropertiesFile.exists()) {
+            create("release") {
+                keyAlias = keystoreProperties.getProperty("keyAlias")
+                keyPassword = keystoreProperties.getProperty("keyPassword")
+                storeFile = file(keystoreProperties.getProperty("storeFile"))
+                storePassword = keystoreProperties.getProperty("storePassword")
+            }
+        }
+    }
+
+"""
+
+GRADLE_RELEASE_SIGNING = """signingConfig = if (keystorePropertiesFile.exists()) {
+                signingConfigs.getByName("release")
+            } else {
+                signingConfigs.getByName("debug")
+            }"""
+
+
+class PatchError(Exception):
+    """An anchor the patch relies on was not found in a generated file."""
+
+
+def read(path: pathlib.Path) -> str:
+    if not path.is_file():
+        raise PatchError(f"{path} does not exist. Run `flutter create --platforms=android .` first.")
+    return path.read_text(encoding="utf-8")
+
+
+def write_if_changed(path: pathlib.Path, text: str) -> bool:
+    if path.read_text(encoding="utf-8") == text:
+        return False
+    path.write_text(text, encoding="utf-8")
+    return True
+
+
+def patch_manifest(path: pathlib.Path) -> bool:
+    text = read(path)
+
+    if "android.permission.INTERNET" not in text:
+        text, count = re.subn(r"(<manifest\b[^>]*>)", r"\1\n    " + INTERNET, text, count=1)
+        if count != 1:
+            raise PatchError("no <manifest> element found in AndroidManifest.xml")
+
+    text, count = re.subn(r'(<application\b[^>]*?\sandroid:label=")[^"]*(")', r"\g<1>" + APP_LABEL + r"\2", text, count=1)
+    if count != 1:
+        raise PatchError('<application android:label="..."> not found in AndroidManifest.xml')
+
+    if "android:allowBackup" not in text:
+        text, count = re.subn(r"<application\b", '<application\n        android:allowBackup="false"', text, count=1)
+        if count != 1:
+            raise PatchError("<application> not found in AndroidManifest.xml")
+
+    if 'android:scheme="https"' not in text or 'android:scheme="http"' not in text:
+        if "</queries>" in text:
+            additions = ""
+            if 'android:scheme="https"' not in text:
+                additions += QUERY_HTTPS
+            if 'android:scheme="http"' not in text:
+                additions += QUERY_HTTP
+            closing = "    </queries>" if "    </queries>" in text else "</queries>"
+            text = text.replace(closing, additions + "    </queries>", 1)
+        else:
+            text = text.replace("</manifest>", "    <queries>\n" + QUERY_HTTPS + QUERY_HTTP + "    </queries>\n</manifest>", 1)
+
+    changed = write_if_changed(path, text)
+
+    # Fail loudly if anything the app depends on is still missing.
+    final = path.read_text(encoding="utf-8")
+    for needle in (INTERNET, f'android:label="{APP_LABEL}"', 'android:allowBackup="false"', 'android:scheme="https"'):
+        if needle not in final:
+            raise PatchError(f"AndroidManifest.xml is missing {needle!r} after patching")
+    return changed
+
+
+def patch_gradle(path: pathlib.Path) -> bool:
+    text = read(path)
+
+    if "import java.util.Properties" not in text:
+        text = GRADLE_IMPORTS + text
+
+    if "keystorePropertiesFile" not in text:
+        text, count = re.subn(r"(?m)^android \{", lambda m: GRADLE_KEYSTORE + "android {", text, count=1)
+        if count != 1:
+            raise PatchError("`android {` block not found in app/build.gradle.kts")
+
+    if 'create("release")' not in text:
+        text, count = re.subn(r"(?m)^    buildTypes \{", lambda m: GRADLE_SIGNING_CONFIGS + "    buildTypes {", text, count=1)
+        if count != 1:
+            raise PatchError("`buildTypes {` block not found in app/build.gradle.kts")
+
+    if 'signingConfigs.getByName("release")' not in text:
+        text, count = re.subn(r'signingConfig = signingConfigs\.getByName\("debug"\)', lambda m: GRADLE_RELEASE_SIGNING, text, count=1)
+        if count != 1:
+            raise PatchError("the release signingConfig line was not found in app/build.gradle.kts")
+
+    if f"maxOf(flutter.minSdkVersion, {MIN_SDK})" not in text:
+        text, count = re.subn(r"minSdk = flutter\.minSdkVersion", f"minSdk = maxOf(flutter.minSdkVersion, {MIN_SDK})", text, count=1)
+        if count != 1:
+            raise PatchError("`minSdk = flutter.minSdkVersion` not found in app/build.gradle.kts")
+
+    return write_if_changed(path, text)
+
+
+def copy_resources(source: pathlib.Path, target: pathlib.Path) -> int:
+    if not source.is_dir():
+        raise PatchError(f"{source} does not exist (the committed launcher icons are missing)")
+    copied = 0
+    for file in sorted(source.rglob("*")):
+        if not file.is_file():
+            continue
+        destination = target / file.relative_to(source)
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        if not destination.exists() or destination.read_bytes() != file.read_bytes():
+            shutil.copyfile(file, destination)
+            copied += 1
+    return copied
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("--project", default=".", help="Flutter project folder (default: current folder)")
+    args = parser.parse_args()
+
+    project = pathlib.Path(args.project).resolve()
+    android = project / "android"
+    try:
+        if not android.is_dir():
+            raise PatchError(f"{android} does not exist. Run `flutter create --platforms=android .` first.")
+        manifest_changed = patch_manifest(android / "app" / "src" / "main" / "AndroidManifest.xml")
+        gradle_file = android / "app" / "build.gradle.kts"
+        if not gradle_file.is_file() and (android / "app" / "build.gradle").is_file():
+            raise PatchError("android/app/build.gradle (Groovy) found, but this script expects the Kotlin DSL of Flutter 3.29+")
+        gradle_changed = patch_gradle(gradle_file)
+        copied = copy_resources(project / "branding" / "android" / "res", android / "app" / "src" / "main" / "res")
+    except PatchError as error:
+        print(f"prepare_android.py: {error}", file=sys.stderr)
+        return 1
+
+    print(
+        "prepare_android.py: manifest {}, build.gradle.kts {}, {} resource file(s) copied".format(
+            "patched" if manifest_changed else "already patched",
+            "patched" if gradle_changed else "already patched",
+            copied,
+        )
+    )
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
