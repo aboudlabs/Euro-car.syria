@@ -177,11 +177,10 @@ void main() {
       await tester.tap(find.text('حسابي').last);
       await settle(tester);
 
-      expect(find.text('العملة'), findsOneWidget);
-      expect(find.text('اللغة'), findsOneWidget);
-      expect(find.text('بيانات الحساب'), findsOneWidget);
-      expect(find.text('عناويني'), findsOneWidget);
-      expect(find.text('مركباتي'), findsOneWidget);
+      for (final String title in <String>['العملة', 'اللغة', 'بيانات الحساب', 'عناويني', 'مركباتي']) {
+        await tester.scrollUntilVisible(find.text(title), 300, scrollable: find.byType(Scrollable).first);
+        expect(find.text(title), findsOneWidget, reason: title);
+      }
       for (final String title in <String>['عن EURO', 'طلباتي النشطة', 'طلباتي السابقة', 'حذف الحساب']) {
         await tester.scrollUntilVisible(find.text(title), 300, scrollable: find.byType(Scrollable).first);
         expect(find.text(title), findsOneWidget, reason: title);
