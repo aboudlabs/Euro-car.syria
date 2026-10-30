@@ -147,7 +147,7 @@ class _ContactRow extends StatelessWidget {
     this.onTap,
   });
 
-  final IconData icon;
+  final FaIconData icon;
   final String label;
   final String value;
   final Color? iconColor;
