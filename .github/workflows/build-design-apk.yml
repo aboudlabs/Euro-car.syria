@@ -50,6 +50,9 @@ jobs:
       - name: Prepare Android configuration and icons
         run: python3 tool/prepare_android.py
 
+      - name: Configure R8 for optional ML Kit OCR scripts
+        run: python3 tool/configure_mlkit_r8.py
+
       - name: Get Flutter dependencies
         run: flutter pub get
 
