@@ -3,7 +3,6 @@
 
 import 'dart:convert';
 
-import 'package:euro_cars/core/api_client.dart';
 import 'package:euro_cars/core/display.dart';
 import 'package:euro_cars/core/models.dart';
 import 'package:euro_cars/core/session_store.dart';
