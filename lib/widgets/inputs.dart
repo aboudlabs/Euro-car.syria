@@ -1,8 +1,6 @@
 // Text fields, buttons, quantity stepper and avatar: the web app's inset fields (`.input`) and pill buttons
 // (`.btn` / `.btn2`).
 
-import 'dart:typed_data';
-
 import 'package:flutter/material.dart' hide Text;
 import 'package:flutter/services.dart';
 
