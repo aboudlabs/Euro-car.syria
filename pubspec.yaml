@@ -20,7 +20,7 @@ dependencies:
   # On-device text recognition for the VIN camera search (no network, no account; Latin script).
   google_mlkit_text_recognition: ^0.15.0
   # Original Instagram / TikTok brand icons for the About page.
-  font_awesome_flutter: ^10.7.0
+  font_awesome_flutter: ^11.0.0
 
 dev_dependencies:
   flutter_test:
