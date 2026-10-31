@@ -1,0 +1,88 @@
+name: Build EURO CARS APK (design branch)
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - design/site-to-flutter
+    paths:
+      - '**.dart'
+      - 'pubspec.yaml'
+      - 'pubspec.lock'
+      - 'assets/**'
+      - 'branding/**'
+      - 'tool/**'
+      - '.github/workflows/build-design-apk.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: euro-cars-design-apk-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build Android release APK
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Checkout selected branch
+        uses: actions/checkout@v4
+        with:
+          ref: design/site-to-flutter
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Generate Android project
+        run: flutter create --platforms=android --org com.eurocars --project-name euro_cars .
+
+      - name: Prepare Android configuration and icons
+        run: python3 tool/prepare_android.py
+
+      - name: Configure R8 for optional ML Kit OCR scripts
+        run: python3 tool/configure_mlkit_r8.py
+
+      - name: Get Flutter dependencies
+        run: flutter pub get
+
+      - name: Analyze Dart
+        run: flutter analyze --no-pub
+
+      - name: Run Flutter tests
+        run: flutter test --no-pub
+
+      - name: Build release APK (ARM32 + ARM64)
+        run: flutter build apk --release --target-platform android-arm,android-arm64
+
+      - name: Verify APK
+        run: bash tool/verify_apk.sh build/app/outputs/flutter-apk/app-release.apk
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: euro-cars-design-branch-apk
+          path: |
+            build/app/outputs/flutter-apk/app-release.apk
+            build/app/outputs/flutter-apk/app-release.apk.sha256
+            build/app/outputs/flutter-apk/app-release.apk.verification.txt
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Build summary
+        if: always()
+        run: |
+          echo "### EURO CARS — design/site-to-flutter" >> "$GITHUB_STEP_SUMMARY"
+          if [ -f build/app/outputs/flutter-apk/app-release.apk ]; then
+            echo "APK size: $(du -h build/app/outputs/flutter-apk/app-release.apk | cut -f1)" >> "$GITHUB_STEP_SUMMARY"
+          fi
